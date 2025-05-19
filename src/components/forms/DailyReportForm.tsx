@@ -17,7 +17,20 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { CalendarIcon, MapPin, ClipboardSignature, CloudSun, Users2, Truck, Package, TrendingUp, AlertTriangle, Camera, PenLine, Send } from "lucide-react";
+import {
+  CalendarIcon,
+  MapPin,
+  ClipboardSignature,
+  CloudSun,
+  Users2,
+  Truck,
+  Package,
+  TrendingUp,
+  AlertTriangle,
+  Camera,
+  PenLine,
+  Send,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import type { DailyReportFormData, SubmitReportResult } from "@/lib/actions";
@@ -26,20 +39,21 @@ import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useAppContext } from "@/contexts/AppContext";
 
+// ⬇️ Zod Schema
 const formSchema = z.object({
-  projectId: z.string().min(3, { message: "Project ID must be at least 3 characters." }),
-  gpsLocation: z.string().min(5, { message: "GPS Location is required." }),
-  date: z.date({ required_error: "A date for the report is required." }),
-  weather: z.string().min(3, { message: "Weather conditions are required." }),
-  manpower: z.string().min(10, { message: "Manpower details are required (e.g., 2 foremen, 5 laborers)." }),
-  equipmentHours: z.string().min(5, { message: "Equipment hours are required (e.g., Excavator: 8hrs)." }),
-  materialsUsed: z.string().min(5, { message: "Materials used are required (e.g., Pipes: 10 units)." }),
-  progressUpdates: z.string().min(10, { message: "Progress updates are required." }),
-  risksIssues: z.string().min(5, { message: "Describe any risks or issues. Enter 'None' if applicable." }),
+  projectId: z.string().min(3),
+  gpsLocation: z.string().min(5),
+  date: z.date(),
+  weather: z.string().min(3),
+  manpower: z.string().min(10),
+  equipmentHours: z.string().min(5),
+  materialsUsed: z.string().min(5),
+  progressUpdates: z.string().min(10),
+  risksIssues: z.string().min(5),
   photoDataUri: z.string().optional().refine(val => !val || val.startsWith("data:image/"), {
-    message: "Photo must be a valid data URI (e.g., data:image/png;base64,...). This is a placeholder for file upload.",
+    message: "Photo must be a valid data URI.",
   }),
-  digitalSignature: z.string().min(2, { message: "Foreman's name for signature is required." }),
+  digitalSignature: z.string().min(2),
 });
 
 type DailyReportFormValues = z.infer<typeof formSchema>;
@@ -53,7 +67,34 @@ export function DailyReportForm({ onFormSubmitSuccess }: DailyReportFormProps) {
   const { setIsLoading, isOffline } = useAppContext();
   const [isSubmitting, setIsSubmittingState] = useState(false);
 
-   const form = useForm<DailyReportFormValues>({
+  // ✅ MOVE useState INSIDE THE COMPONENT
+  const [labors, setLabors] = useState([{ name: "", hours: "" }]);
+  const handleLaborChange = (index: number, field: string, value: string) => {
+    const updated = [...labors];
+    updated[index][field as keyof typeof updated[0]] = value;
+    setLabors(updated);
+  };
+  const addLabor = () => setLabors([...labors, { name: "", hours: "" }]);
+  const removeLabor = (index: number) => {
+    const updated = [...labors];
+    updated.splice(index, 1);
+    setLabors(updated);
+  };
+
+  const [equipment, setEquipment] = useState([{ name: "", hours: "", operator: "" }]);
+  const handleEquipmentChange = (index: number, field: string, value: string) => {
+    const updated = [...equipment];
+    updated[index][field as keyof typeof updated[0]] = value;
+    setEquipment(updated);
+  };
+  const addEquipment = () => setEquipment([...equipment, { name: "", hours: "", operator: "" }]);
+  const removeEquipment = (index: number) => {
+    const updated = [...equipment];
+    updated.splice(index, 1);
+    setEquipment(updated);
+  };
+
+  const form = useForm<DailyReportFormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       projectId: "",
@@ -69,101 +110,64 @@ export function DailyReportForm({ onFormSubmitSuccess }: DailyReportFormProps) {
       digitalSignature: "",
     },
   });
-  
-  // Effect to update context loading state
+
   useEffect(() => {
     setIsLoading(isSubmitting);
   }, [isSubmitting, setIsLoading]);
 
-  // Handle auto-filling GPS (conceptual, needs browser API permission)
-  useEffect(() => {
-    if (typeof window !== "undefined" && navigator.geolocation) {
-      // navigator.geolocation.getCurrentPosition(
-      //   (position) => {
-      //     form.setValue("gpsLocation", `${position.coords.latitude.toFixed(5)}, ${position.coords.longitude.toFixed(5)}`);
-      //   },
-      //   (error) => {
-      //     console.warn("Could not get GPS location:", error.message);
-      //     toast({ title: "GPS Info", description: "Could not auto-fetch GPS. Please enter manually.", variant: "default" });
-      //   }
-      // );
-    }
-  }, [form, toast]);
-
-
   async function onSubmit(values: DailyReportFormValues) {
     setIsSubmittingState(true);
 
+    const fullReport = {
+      ...values,
+      labors,
+      equipment,
+      date: format(values.date, "yyyy-MM-dd"),
+      timestamp: new Date().toISOString(),
+    };
+
     if (isOffline) {
-      // Simulate saving to localStorage for offline use
-      const offlineReport = { ...values, date: values.date.toISOString(), timestamp: new Date().toISOString() };
-      localStorage.setItem(`offlineReport_${Date.now()}`, JSON.stringify(offlineReport));
+      localStorage.setItem(`offlineReport_${Date.now()}`, JSON.stringify(fullReport));
       toast({
         title: "Offline Mode",
-        description: "Report saved locally. It will be submitted when you're back online.",
-        variant: "default",
+        description: "Report saved locally.",
       });
       setIsSubmittingState(false);
-      form.reset(); // Reset form after offline save
-      // Potentially call onFormSubmitSuccess with a simulated offline success
+      form.reset();
       if (onFormSubmitSuccess) {
-        onFormSubmitSuccess({
-          success: true,
-          message: "Report saved offline.",
-          submittedData: { ...values, date: values.date.toISOString(), timestamp: new Date().toISOString() }
-        });
+        onFormSubmitSuccess({ success: true, message: "Offline", submittedData: fullReport });
       }
       return;
     }
 
-    const formDataForAction: DailyReportFormData = {
-      ...values,
-      date: format(values.date, "yyyy-MM-dd"), // Format date to string for action
-      timestamp: new Date().toISOString(),
-    };
-
     try {
-      const result = await submitDailyReport(formDataForAction);
+      const result = await submitDailyReport(fullReport);
       if (result.success) {
-        toast({
-          title: "Report Submitted!",
-          description: result.message,
-        });
-        form.reset(); // Reset form on successful submission
-        if (onFormSubmitSuccess) {
-          onFormSubmitSuccess(result);
-        }
+        toast({ title: "Submitted", description: result.message });
+        form.reset();
+        if (onFormSubmitSuccess) onFormSubmitSuccess(result);
       } else {
-        toast({
-          title: "Submission Failed",
-          description: result.message,
-          variant: "destructive",
-        });
+        toast({ title: "Failed", description: result.message, variant: "destructive" });
       }
     } catch (error) {
-      toast({
-        title: "Error",
-        description: "An unexpected error occurred. Please try again.",
-        variant: "destructive",
-      });
-      console.error("Submission error:", error);
+      toast({ title: "Error", description: "Something went wrong.", variant: "destructive" });
     } finally {
       setIsSubmittingState(false);
     }
   }
 
   const formFields = [
-    { name: "projectId", label: "Project ID", placeholder: "e.g., PJ-1023-RiverCrossing", icon: ClipboardSignature, description: "Enter the unique identifier for this project." },
-    { name: "gpsLocation", label: "GPS Location", placeholder: "e.g., 34.0522° N, 118.2437° W or Site Marker 12B", icon: MapPin, description: "Current GPS coordinates or site location identifier." },
-    { name: "date", label: "Date", icon: CalendarIcon, type: "date", description: "Select the date for this report." },
-    { name: "weather", label: "Weather Conditions", placeholder: "e.g., Sunny, 25°C, Light Breeze", icon: CloudSun, type: "textarea", description: "Describe the weather throughout the day." },
-    { name: "manpower", label: "Manpower Details", placeholder: "e.g., 1 Foreman, 3 Operators, 5 Laborers", icon: Users2, type: "textarea", description: "List the team composition and numbers on site." },
-    { name: "equipmentHours", label: "Equipment & Hours", placeholder: "e.g., Excavator D30: 8hrs, Crane M5: 4hrs, Welding Unit: 6hrs", icon: Truck, type: "textarea", description: "List equipment used and total operational hours for each." },
-    { name: "materialsUsed", label: "Materials Used", placeholder: "e.g., 36inch Steel Pipe: 120ft, Welding Rods: 50lbs, Gravel: 5 tons", icon: Package, type: "textarea", description: "Quantify materials consumed today." },
-    { name: "progressUpdates", label: "Progress Updates", placeholder: "e.g., Laid 100ft of pipe section A. Completed 2 welds. Trenching for section B started.", icon: TrendingUp, type: "textarea", description: "Detail work completed and progress made." },
-    { name: "risksIssues", label: "Risks & Issues Encountered", placeholder: "e.g., Minor equipment breakdown (resolved). Unexpected soil type slowed trenching by 1hr. No safety incidents.", icon: AlertTriangle, type: "textarea", description: "Report any identified risks, issues, delays, or safety concerns. State 'None' if none." },
-    { name: "photoDataUri", label: "Photo Attachment (Data URI)", placeholder: "data:image/jpeg;base64,... (Optional)", icon: Camera, description: "Paste photo data URI. (This is a placeholder for a real file upload feature)." },
-    { name: "digitalSignature", label: "Foreman Signature (Full Name)", placeholder: "Enter your full name", icon: PenLine, description: "Your full name acts as your digital signature for this report." },
+    { name: "projectId", label: "Project ID", placeholder: "e.g., PJ-1023-RiverCrossing", icon: ClipboardSignature },
+    { name: "gpsLocation", label: "GPS Location", placeholder: "e.g., Site Marker 12B", icon: MapPin },
+    { name: "date", label: "Date", icon: CalendarIcon, type: "date" },
+    { name: "weather", label: "Weather", placeholder: "e.g., Sunny", icon: CloudSun, type: "textarea" },
+    { name: "manpower", label: "Manpower", placeholder: "e.g., 3 Laborers", icon: Users2, type: "textarea" },
+    { name: "equipmentHours", label: "Equipment Hours", placeholder: "e.g., Crane: 6hrs", icon: Truck, type: "textarea" },
+    { name: "materialsUsed", label: "Materials Used", placeholder: "e.g., 5 tons gravel", icon: Package, type: "textarea" },
+    { name: "progressUpdates", label: "Progress Updates", placeholder: "e.g., Completed trench", icon: TrendingUp, type: "textarea" },
+    { name: "risksIssues", label: "Risks & Issues", placeholder: "e.g., None", icon: AlertTriangle, type: "textarea" },
+    { name: "photoDataUri", label: "Photo (Data URI)", placeholder: "data:image/...", icon: Camera },
+    { name: "digitalSignature", label: "Signature", placeholder: "Full Name", icon: PenLine },
   ];
 
   return (
@@ -176,56 +180,92 @@ export function DailyReportForm({ onFormSubmitSuccess }: DailyReportFormProps) {
               control={form.control}
               name={fieldInfo.name as keyof DailyReportFormValues}
               render={({ field }) => (
-                <FormItem className={fieldInfo.type === 'textarea' || ['progressUpdates', 'risksIssues', 'materialsUsed'].includes(fieldInfo.name) ? 'md:col-span-2' : ''}>
+                <FormItem className={fieldInfo.type === 'textarea' ? 'md:col-span-2' : ''}>
                   <FormLabel className="flex items-center text-base">
                     <fieldInfo.icon className="mr-2 h-5 w-5 text-primary" />
                     {fieldInfo.label}
                   </FormLabel>
                   <FormControl>
                     {fieldInfo.type === "date" ? (
-                       <Popover>
+                      <Popover>
                         <PopoverTrigger asChild>
-                          <Button
-                            variant={"outline"}
-                            className={cn(
-                              "w-full justify-start text-left font-normal",
-                              !field.value && "text-muted-foreground"
-                            )}
-                          >
+                          <Button variant={"outline"} className={cn("w-full text-left", !field.value && "text-muted")}>
                             <CalendarIcon className="mr-2 h-4 w-4" />
                             {field.value ? format(field.value as Date, "PPP") : <span>Pick a date</span>}
                           </Button>
                         </PopoverTrigger>
                         <PopoverContent className="w-auto p-0">
-                          <Calendar
-                            mode="single"
-                            selected={field.value as Date}
-                            onSelect={field.onChange}
-                            initialFocus
-                          />
+                          <Calendar mode="single" selected={field.value as Date} onSelect={field.onChange} initialFocus />
                         </PopoverContent>
                       </Popover>
                     ) : fieldInfo.type === "textarea" ? (
-                      <Textarea placeholder={fieldInfo.placeholder} {...field as any} className="min-h-[100px] text-base" />
+                      <Textarea {...field} placeholder={fieldInfo.placeholder} className="min-h-[100px]" />
                     ) : (
-                      <Input placeholder={fieldInfo.placeholder} {...field as any} className="text-base" />
+                      <Input {...field} placeholder={fieldInfo.placeholder} />
                     )}
                   </FormControl>
-                  {fieldInfo.description && <FormDescription>{fieldInfo.description}</FormDescription>}
                   <FormMessage />
                 </FormItem>
               )}
             />
           ))}
+
+          {/* ✅ LABOR INPUT SECTION */}
+          <h3 className="text-md font-semibold mt-6 mb-2">Labor Entries</h3>
+          {labors.map((labor, i) => (
+            <div key={i} className="flex items-center space-x-2 mb-2">
+              <input
+                type="text"
+                placeholder="Name"
+                className="p-2 border rounded w-1/2"
+                value={labor.name}
+                onChange={(e) => handleLaborChange(i, 'name', e.target.value)}
+              />
+              <input
+                type="number"
+                placeholder="Hours"
+                className="p-2 border rounded w-1/4"
+                value={labor.hours}
+                onChange={(e) => handleLaborChange(i, 'hours', e.target.value)}
+              />
+              <button type="button" onClick={() => removeLabor(i)} className="text-red-600 font-bold">✕</button>
+            </div>
+          ))}
+          <button type="button" onClick={addLabor} className="text-blue-600 text-sm underline">+ Add another labor</button>
+
+          {/* ✅ EQUIPMENT INPUT SECTION */}
+          <h3 className="text-md font-semibold mt-6 mb-2">Equipment Used</h3>
+          {equipment.map((item, i) => (
+            <div key={i} className="flex items-center space-x-2 mb-2">
+              <input
+                type="text"
+                placeholder="Equipment Name"
+                className="p-2 border rounded w-1/3"
+                value={item.name}
+                onChange={(e) => handleEquipmentChange(i, 'name', e.target.value)}
+              />
+              <input
+                type="number"
+                placeholder="Hours"
+                className="p-2 border rounded w-1/6"
+                value={item.hours}
+                onChange={(e) => handleEquipmentChange(i, 'hours', e.target.value)}
+              />
+              <input
+                type="text"
+                placeholder="Operator (optional)"
+                className="p-2 border rounded w-1/3"
+                value={item.operator}
+                onChange={(e) => handleEquipmentChange(i, 'operator', e.target.value)}
+              />
+              <button type="button" onClick={() => removeEquipment(i)} className="text-red-600 font-bold">✕</button>
+            </div>
+          ))}
+          <button type="button" onClick={addEquipment} className="text-blue-600 text-sm underline">+ Add equipment</button>
         </div>
-        
+
         <Button type="submit" disabled={isSubmitting} size="lg" className="w-full md:w-auto text-lg py-3 px-6">
-          {isSubmitting ? "Submitting..." : (
-            <>
-              <Send className="mr-2 h-5 w-5" />
-              Submit Daily Report
-            </>
-          )}
+          {isSubmitting ? "Submitting..." : (<><Send className="mr-2 h-5 w-5" /> Submit Daily Report</>)}
         </Button>
       </form>
     </Form>
